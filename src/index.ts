@@ -11,7 +11,7 @@ import { stderr } from 'process';
 
 // Configuration
 const API_BASE_URL =
-  process.env.CONTEXT_API_URL || 'https://dev.doppelgnagers.ai:3003';
+  process.env.CONTEXT_API_URL || 'https://dev.doppelgangers.ai:3003';
 const API_KEY = process.env.CONTEXT_API_KEY || '';
 
 // Types
