@@ -151,6 +151,21 @@ async function getCredits(): Promise<string> {
   return `Credits Balance: ${result.balance}\nLifetime Purchased: ${result.lifetimePurchased}\nLifetime Used: ${result.lifetimeUsed}`;
 }
 
+// Server instructions for LLM
+const SERVER_INSTRUCTIONS = `This MCP server provides semantic search capabilities for Twitter/X posts through the Context API.
+
+## Available Tools:
+- **search_twitter_posts**: Semantic search across indexed tweets. Use natural language queries like "opinions about AI safety" rather than keywords. Supports filtering by username, date range, and relevance score.
+- **get_user_posts**: Retrieve all indexed posts from a specific Twitter/X user.
+- **check_credits**: View your API credit balance and usage.
+
+## Usage Tips:
+- Searches are semantic (meaning-based), not keyword-based. Describe what you're looking for in natural language.
+- Use the username filter to focus on a specific person's tweets.
+- Higher minScore values (0.7+) return more relevant but fewer results.
+- Each search consumes API credits. Use check_credits to monitor your balance.
+- Currently only Twitter/X platform is supported.`;
+
 // Create MCP Server
 const server = new Server(
   {
@@ -161,6 +176,7 @@ const server = new Server(
     capabilities: {
       tools: {},
     },
+    instructions: SERVER_INSTRUCTIONS,
   },
 );
 
