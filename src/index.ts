@@ -15,22 +15,19 @@ const API_BASE_URL =
 const API_KEY = process.env.CONTEXT_API_KEY || '';
 
 // Types
-interface SearchParams {
+interface SearchRelevantParams {
   query: string;
-  username?: string;
+  username: string;
   platform?: string;
-  limit?: number;
-  offset?: number;
-  dateFrom?: string;
-  dateTo?: string;
-  minScore?: number;
   [key: string]: unknown;
 }
 
-interface RenderingsParams {
+interface RenderingsQueryParams {
   username: string;
   platform?: string;
   simple?: boolean;
+  limit?: number;
+  offset?: number;
   [key: string]: unknown;
 }
 
@@ -43,23 +40,23 @@ interface CreditsResponse {
 interface Rendering {
   _job_id?: string;
   _store_date?: string;
-  global_doc_id?: string;
-  global_user_id?: string;
-  rendering?: string;
+  global_doc_id: string;
+  global_user_id: string;
+  rendering: string;
 }
 
-interface SearchRendering extends Rendering {
+interface RelevantRendering extends Rendering {
   score?: number;
 }
 
-interface SearchResult {
+interface SearchRelevantResult {
   count: number;
   creditsCharged: number;
   creditsRemaining: number;
-  renderings: SearchRendering[];
+  renderings: RelevantRendering[];
 }
 
-interface RenderingsResult {
+interface QueryRenderingsResult {
   count: number;
   renderings: Rendering[];
 }
@@ -144,15 +141,15 @@ async function apiRequest<T>(
 }
 
 // Tool implementations
-async function searchTwitterPosts(params: SearchParams): Promise<string> {
-  const result = await apiRequest<SearchResult>('/v1/search', 'POST', params);
+async function searchRelevantPostRenderings(params: SearchRelevantParams): Promise<string> {
+  const result = await apiRequest<SearchRelevantResult>('/v1/search', 'POST', params);
 
   const count = safeNumber(result.count, 0);
-  const renderings = safeArray<SearchRendering>(result.renderings);
+  const renderings = safeArray<RelevantRendering>(result.renderings);
 
   if (count === 0 || renderings.length === 0) {
     return `No results found for query: "${params.query}"${
-      params.username ? ` from @${params.username}` : ''
+      params.username ? ` from posts of X user @${params.username}` : ''
     }`;
   }
 
@@ -170,25 +167,30 @@ async function searchTwitterPosts(params: SearchParams): Promise<string> {
   return `Found ${count} results (showing ${renderings.length})\nCredits used: ${creditsCharged}, Remaining: ${creditsRemaining}\n\n${formattedResults}`;
 }
 
-async function getRenderings(params: RenderingsParams): Promise<string> {
-  const endpoint = params.simple
-    ? `/v1/renderings/simple?username=${encodeURIComponent(params.username)}${
-        params.platform ? `&platform=${params.platform}` : ''
-      }`
-    : `/v1/renderings?username=${encodeURIComponent(params.username)}${
-        params.platform ? `&platform=${params.platform}` : ''
-      }`;
+async function getAllUserPostRenderings(params: RenderingsQueryParams): Promise<string> {
+  const queryParams = new URLSearchParams({
+    username: params.username,
+    ...(params.platform && { platform: params.platform }),
+    ...(params.limit !== undefined && { limit: String(params.limit) }),
+    ...(params.offset !== undefined && { offset: String(params.offset) }),
+  });
 
-  const result = await apiRequest<RenderingsResult>(endpoint);
+  const endpoint = params.simple
+    ? `/v1/renderings/simple?${queryParams.toString()}`
+    : `/v1/renderings?${queryParams.toString()}`;
+
+  const result = await apiRequest<QueryRenderingsResult>(endpoint);
 
   const count = safeNumber(result.count, 0);
   const renderings = safeArray<Rendering>(result.renderings);
 
   if (renderings.length === 0) {
-    return `No posts found for @${params.username}`;
+    return `No posts found of X user @${params.username}`;
   }
 
+  // Cap at 1024 results to prevent context overflow
   const slicedRenderings = renderings.slice(0, 1024);
+
   const formattedRenderings = slicedRenderings
     .map((r, i) => {
       const content = formatRendering(r.rendering);
@@ -205,19 +207,36 @@ async function getCredits(): Promise<string> {
 }
 
 // Server instructions for LLM
-const SERVER_INSTRUCTIONS = `This MCP server provides semantic search capabilities for Twitter/X posts through the Context API.
+const SERVER_INSTRUCTIONS = `This MCP server provides access to contextualized renderings (XML descriptions) of 
+Twitter/X posts. The contextualization allows for: 
+ * More high-quality retrieval of relevant information from the posts,
+ * More high-quality analysis of insights, trends, topics, etc. from the posts
+ 
+The contextualization is achieved by adding the following information to the XML description of each post:
+ * Descriptions of referenced posts and images
+ * When the post is a reply in a conversation, the conversation or a summary of the conversation.
+ * Metadata about the post (e.g., creation data, post ID, etc.)
+ 
+Note that no descriptions are added yet related to referenced videos or links (external sites).
+ 
+The XML structure helps to describe the relationship between posts and their context.   
+ 
+Using the available tools has a cost associated with it, with each call the credit balance is updated.
 
 ## Available Tools:
-- **search_twitter_posts**: Semantic search across indexed tweets. Use natural language queries like "opinions about AI safety" rather than keywords. Supports filtering by username, date range, and relevance score.
-- **get_user_posts**: Retrieve all indexed posts from a specific Twitter/X user.
+- **search_relevant_posts**: 
+  Semantic search of contextualized post renderings of a certain Twitter/X user, based on a 
+  natural language queries like "What does @visionscaper think about the future of AI?".
+  
+- **get_all_user_posts**: Retrieve all contextualized post renderings of a specific Twitter/X user. 
+  This is useful to analyse the posts for insights, trends and topics over all posts.
+  
 - **check_credits**: View your API credit balance and usage.
 
 ## Usage Tips:
 - Searches are semantic (meaning-based), not keyword-based. Describe what you're looking for in natural language.
-- Use the username filter to focus on a specific person's tweets.
-- Higher minScore values (0.7+) return more relevant but fewer results.
 - Each search consumes API credits. Use check_credits to monitor your balance.
-- Currently only Twitter/X platform is supported.`;
+- Currently only the Twitter/X platform is supported.`;
 
 // Create MCP Server
 const server = new Server(
@@ -237,21 +256,25 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
-      name: 'search_twitter_posts',
+      name: 'search_relevant_posts',
       description:
-        'Search Twitter/X posts using semantic search. Find relevant tweets based on meaning, not just keywords. Can filter by username, date range, and relevance score.',
+        'Semantic search of contextualized post renderings of a certain Twitter/X user, based on a ' +
+        'natural language query. Twitter/X username and platform (= X) must be provided. \n' +
+        'Use this tool to find specific posts, relevant to the query.',
       inputSchema: {
         type: 'object',
         properties: {
           query: {
             type: 'string',
             description:
-              "The search query. Use natural language to describe what you're looking for (e.g., 'thoughts on AI regulation' or 'predictions about Bitcoin price')",
+              'The search query. Use natural language to describe what you\'re looking for. For instance: \n' +
+              ' * \"What does @elonmusk think about AI regulation?\" or ' +
+              ' * \"What is @hosseeb\'s prediction on the price of Bitcoin?\"',
           },
           username: {
             type: 'string',
             description:
-              'Twitter/X username to search within (without @). If not provided, searches across all indexed users.',
+              'Twitter/X username to search within (without @). This argument is required.',
           },
           platform: {
             type: 'string',
@@ -259,44 +282,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
               "Platform to search. Currently only 'X' (Twitter) is supported.",
             default: 'X',
           },
-          limit: {
-            type: 'integer',
-            description: 'Maximum number of results to return (1-50)',
-            default: 10,
-            minimum: 1,
-            maximum: 50,
-          },
-          offset: {
-            type: 'integer',
-            description: 'Number of results to skip for pagination',
-            default: 0,
-            minimum: 0,
-          },
-          dateFrom: {
-            type: 'string',
-            description:
-              'Filter results from this date (ISO format: YYYY-MM-DD)',
-          },
-          dateTo: {
-            type: 'string',
-            description:
-              'Filter results until this date (ISO format: YYYY-MM-DD)',
-          },
-          minScore: {
-            type: 'number',
-            description:
-              'Minimum relevance score (0-1). Higher values return more relevant results.',
-            minimum: 0,
-            maximum: 1,
-          },
         },
-        required: ['query'],
+        required: ['query', 'username'],
       },
     },
     {
-      name: 'get_user_posts',
+      name: 'get_all_user_posts',
       description:
-        "Get all indexed posts from a specific Twitter/X user. Useful for browsing a user's content without a specific search query.",
+        'Retrieve all contextualized post renderings of a specific Twitter/X user. ' +
+        'This tool is useful when you need to analyse posts for insights, trends and topics over all posts. \n' +
+        'For instance, to answer queries such as: \n' +
+        ' * \"What topics does @elonmusk tweet most about?\"\n' +
+        ' * \"What has recently been the mood of @elonmusk?\"',
       inputSchema: {
         type: 'object',
         properties: {
@@ -311,8 +308,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           simple: {
             type: 'boolean',
-            description: 'If true, returns simplified post data',
+            description: 'If true, returns simplified post renderings, ' +
+              'without metadata such as creation date, post ID, etc.',
             default: false,
+          },
+          limit: {
+            type: 'number',
+            description: 'Max results to return (default: all)',
+          },
+          offset: {
+            type: 'number',
+            description: 'Pagination offset',
+            default: 0,
           },
         },
         required: ['username'],
@@ -341,21 +348,24 @@ server.setRequestHandler(
       let result: string;
 
       switch (name) {
-        case 'search_twitter_posts': {
-          const params = args as SearchParams;
-          if (!params.query) {
-            throw new Error('Query is required for search');
-          }
-          result = await searchTwitterPosts(params);
-          break;
-        }
-
-        case 'get_user_posts': {
-          const params = args as RenderingsParams;
+        case 'search_relevant_posts': {
+          const params = args as SearchRelevantParams;
           if (!params.username) {
             throw new Error('Username is required');
           }
-          result = await getRenderings(params);
+          if (!params.query) {
+            throw new Error('Query is required for search');
+          }
+          result = await searchRelevantPostRenderings(params);
+          break;
+        }
+
+        case 'get_all_user_posts': {
+          const params = args as RenderingsQueryParams;
+          if (!params.username) {
+            throw new Error('Username is required');
+          }
+          result = await getAllUserPostRenderings(params);
           break;
         }
 
