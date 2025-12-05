@@ -1,12 +1,32 @@
 # Context API MCP Server
+MCP (Model Context Protocol) server to access the doppelgangers.ai Social Media Context API.
 
-MCP (Model Context Protocol) server for Claude Desktop integration with Context API - semantic search for Twitter/X posts.
+This MCP server provides access to contextualized renderings (XML descriptions) of
+Twitter/X posts. The contextualization allows for:
+* More high-quality retrieval of relevant information from the posts,
+* More high-quality analysis of insights, trends, topics, etc. from the posts
+
+The contextualization is achieved by adding the following information to the XML description of each post:
+* Descriptions of referenced posts and images
+* When the post is a reply in a conversation, the conversation or a summary of the conversation.
+* Metadata about the post (e.g., creation data, post ID, etc.)
+
+Note that no descriptions are added yet related to referenced videos or links (external sites).
+
+The XML structure helps to describe the relationship between posts and their context.
+
+Using the available tools has a cost associated with it, with each call the credit balance is updated.
 
 ## Features
 
-- **search_twitter_posts** - Semantic search across Twitter/X posts
-- **get_user_posts** - Get all indexed posts from a specific user
-- **check_credits** - Check your API credit balance
+- **search_relevant_posts**:
+  Semantic search of contextualized post renderings of a certain Twitter/X user, based on a
+  natural language queries like "What does @visionscaper think about the future of AI?".
+
+- **get_all_user_posts**: Retrieve all contextualized post renderings of a specific Twitter/X user.
+  This is useful to analyse the posts for insights, trends and topics over all posts.
+
+- **check_credits**: View your API credit balance and usage.
 
 ## Installation
 
@@ -311,19 +331,25 @@ Edit your Zed settings file (`settings.json`):
 
 Once configured, you can use the tools in your MCP client:
 
-### Search Twitter Posts
+### Search Relevant Posts
+
+Semantic search of contextualized post renderings of a certain Twitter/X user, based on a natural language query.
 
 ```
-Search for tweets about AI regulation from @elonmusk
+What does @elonmusk think about AI regulation?
 ```
 
-### Get User Posts
+### Get All User Posts
+Retrieve all contextualized post renderings of a specific Twitter/X user. 
+This tool is useful when you need to analyse posts for insights, trends and topics over all posts.
 
 ```
-Show me recent posts from @naval
+What has recently been the mood of @elonmusk?
 ```
 
 ### Check Credits
+
+Check your Context API credit balance and usage statistics.
 
 ```
 How many API credits do I have left?
@@ -331,34 +357,35 @@ How many API credits do I have left?
 
 ## Tool Reference
 
-### search_twitter_posts
+### search_relevant_posts
 
-Search Twitter/X posts using semantic search.
+### search_relevant_posts
+
+Semantic search of contextualized post renderings of a certain Twitter/X user, based on a natural language query. 
+Use this tool to find specific posts, relevant to the query.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | query | string | Yes | Natural language search query |
-| username | string | No | Twitter username to filter by |
+| username | string | Yes | Twitter/X username (without @) |
 | platform | string | No | Platform (default: "X") |
-| limit | integer | No | Max results (1-50, default: 10) |
-| offset | integer | No | Pagination offset |
-| dateFrom | string | No | Filter from date (YYYY-MM-DD) |
-| dateTo | string | No | Filter to date (YYYY-MM-DD) |
-| minScore | number | No | Minimum relevance score (0-1) |
 
-### get_user_posts
+### get_all_user_posts
 
-Get all indexed posts from a specific user.
+Retrieve all contextualized post renderings of a specific Twitter/X user. 
+This tool is useful when you need to analyse posts for insights, trends and topics over all posts.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| username | string | Yes | Twitter username (without @) |
+| username | string | Yes | Twitter/X username (without @) |
 | platform | string | No | Platform (default: "X") |
-| simple | boolean | No | Return simplified data |
+| simple | boolean | No | If true, returns simplified post renderings without metadata |
+| limit | number | No | Max results to return (default: all) |
+| offset | number | No | Pagination offset (default: 0) |
 
 ### check_credits
 
-Check your API credit balance. No parameters required.
+Check your Context API credit balance and usage statistics. No parameters required.
 
 ## Environment Variables
 
