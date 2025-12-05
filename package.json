@@ -1,6 +1,6 @@
 {
   "name": "context-api-mcp",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "MCP Server for Context API - Semantic Search for Twitter/X posts",
   "type": "module",
   "main": "dist/index.js",
