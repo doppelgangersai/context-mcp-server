@@ -40,21 +40,68 @@ interface CreditsResponse {
   lifetimeUsed: number;
 }
 
+interface Rendering {
+  _job_id?: string;
+  _store_date?: string;
+  global_doc_id?: string;
+  global_user_id?: string;
+  rendering?: string;
+}
+
+interface SearchRendering extends Rendering {
+  score?: number;
+}
+
 interface SearchResult {
   count: number;
   creditsCharged: number;
   creditsRemaining: number;
-  renderings: Array<{
-    global_doc_id: string;
-    rendering: string;
-    score: number;
-    _store_date: string;
-  }>;
+  renderings: SearchRendering[];
+}
+
+interface RenderingsResult {
+  count: number;
+  renderings: Rendering[];
 }
 
 // Logger (use stderr to not interfere with MCP protocol)
 function log(message: string): void {
   stderr.write(`[context-api-mcp] ${message}\n`);
+}
+
+// Safe formatters for potentially missing/invalid data
+function formatScore(score: unknown): string {
+  if (score === undefined || score === null) {
+    return '[Unknown score]';
+  }
+  const numScore = Number(score);
+  if (isNaN(numScore)) {
+    return '[Unknown score]';
+  }
+  return `${(numScore * 100).toFixed(1)}%`;
+}
+
+function formatRendering(rendering: unknown): string {
+  if (rendering === undefined || rendering === null) {
+    return '[No content]';
+  }
+  const str = String(rendering).trim();
+  if (str === '' || str === '[No content]') {
+    return '[No content]';
+  }
+  return str;
+}
+
+function safeNumber(value: unknown, fallback: number): number {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  const num = Number(value);
+  return isNaN(num) ? fallback : num;
+}
+
+function safeArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value : [];
 }
 
 // API Client
@@ -100,22 +147,27 @@ async function apiRequest<T>(
 async function searchTwitterPosts(params: SearchParams): Promise<string> {
   const result = await apiRequest<SearchResult>('/v1/search', 'POST', params);
 
-  if (result.count === 0) {
+  const count = safeNumber(result.count, 0);
+  const renderings = safeArray<SearchRendering>(result.renderings);
+
+  if (count === 0 || renderings.length === 0) {
     return `No results found for query: "${params.query}"${
       params.username ? ` from @${params.username}` : ''
     }`;
   }
 
-  const formattedResults = result.renderings
+  const creditsCharged = safeNumber(result.creditsCharged, 0);
+  const creditsRemaining = safeNumber(result.creditsRemaining, 0);
+
+  const formattedResults = renderings
     .map((r, i) => {
-      const date = new Date(r._store_date).toLocaleDateString();
-      return `[${i + 1}] (Score: ${(r.score * 100).toFixed(1)}%, ${date})\n${
-        r.rendering
-      }`;
+      const score = formatScore(r.score);
+      const content = formatRendering(r.rendering);
+      return `[${i + 1}] (Score: ${score})\n${content}`;
     })
     .join('\n\n---\n\n');
 
-  return `Found ${result.count} results (showing ${result.renderings.length})\nCredits used: ${result.creditsCharged}, Remaining: ${result.creditsRemaining}\n\n${formattedResults}`;
+  return `Found ${count} results (showing ${renderings.length})\nCredits used: ${creditsCharged}, Remaining: ${creditsRemaining}\n\n${formattedResults}`;
 }
 
 async function getRenderings(params: RenderingsParams): Promise<string> {
@@ -127,23 +179,24 @@ async function getRenderings(params: RenderingsParams): Promise<string> {
         params.platform ? `&platform=${params.platform}` : ''
       }`;
 
-  const result = await apiRequest<{
-    renderings: Array<{ id: string; text: string; createdAt: string }>;
-  }>(endpoint);
+  const result = await apiRequest<RenderingsResult>(endpoint);
 
-  if (!result.renderings || result.renderings.length === 0) {
-    return `No renderings found for @${params.username}`;
+  const count = safeNumber(result.count, 0);
+  const renderings = safeArray<Rendering>(result.renderings);
+
+  if (renderings.length === 0) {
+    return `No posts found for @${params.username}`;
   }
 
-  const formattedRenderings = result.renderings
-    .slice(0, 20)
+  const slicedRenderings = renderings.slice(0, 1024);
+  const formattedRenderings = slicedRenderings
     .map((r, i) => {
-      const date = new Date(r.createdAt).toLocaleDateString();
-      return `[${i + 1}] (${date})\n${r.text}`;
+      const content = formatRendering(r.rendering);
+      return `[${i + 1}]\n${content}`;
     })
     .join('\n\n---\n\n');
 
-  return `Found ${result.renderings.length} posts from @${params.username}\n\n${formattedRenderings}`;
+  return `Found ${count} posts from @${params.username} (showing ${slicedRenderings.length})\n\n${formattedRenderings}`;
 }
 
 async function getCredits(): Promise<string> {
